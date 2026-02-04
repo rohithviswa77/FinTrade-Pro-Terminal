@@ -1,90 +1,81 @@
 import { patternChain, allPatterns } from "candlestick";
 
 /**
- * Optimized Predictive Engine: High-Sensitivity Reversal Logic.
- * Balanced for 1m crypto charts while maintaining 30-candle trend context.
+ * Geometric Structural Engine: Focused on 30-40m Pattern Recognition.
+ * Scans for structural "edges" and pivot similarity rather than future prediction.
  */
 export const getMarketPrediction = (ohlcData) => {
-  // Analyzing history buffer.
-  if (!ohlcData || ohlcData.length < 5) {
-    return { name: "ANALYZING", prediction: "SYNCING", signal: "WAIT", color: "text-slate-500", confidence: "Low", probability: 0 };
+  // Sensitive 40-minute window for pattern formation
+  if (!ohlcData || ohlcData.length < 40) {
+    return { name: "SCANNING...", signal: "WAIT", similarity: 0 };
   }
 
-  const detections = patternChain(ohlcData, allPatterns);
+  const recent = ohlcData.slice(-40);
+  const prices = recent.map(c => c.close);
+  const currentPrice = prices[prices.length - 1];
+
+  // --- 1. PIVOT SCANNING (ZIG-ZAG LOGIC) ---
+  const macroHigh = Math.max(...prices);
+  const macroLow = Math.min(...prices);
+  const highIndex = prices.indexOf(macroHigh);
+  const lowIndex = prices.indexOf(macroLow);
+
+  // --- 2. STRUCTURAL MATCHING (DNA TEMPLATES) ---
   
-  if (!detections || detections.length === 0) {
-    return { name: "NO PATTERN", prediction: "STABLE", signal: "HOLD", color: "text-slate-400", confidence: "N/A", probability: 0, forecast: "Sideways Range" };
-  }
+  // A. DOUBLE BOTTOM (W-SHAPE) DETECTION
+  const firstHalf = prices.slice(0, 20);
+  const firstBottom = Math.min(...firstHalf);
+  const neckline = Math.max(...prices.slice(prices.indexOf(firstBottom), -5));
+  
+  // Accuracy check: Is current price returning to the First Bottom edge?
+  const bottomDiff = Math.abs(currentPrice - firstBottom);
+  const dbSimilarity = (1 - (bottomDiff / firstBottom)) * 100;
 
-  const latestMatch = detections[detections.length - 1];
-  const pattern = latestMatch.pattern; 
-  const patternCandle = ohlcData[ohlcData.length - 1]; 
-
-  // --- TREND SENSITIVITY FIX ---
-  // Lowered thresholds (0.05% - 0.10%) to detect micro-trends common in 1m charts.
-  const startPrice = ohlcData[0].close;
-  const endPrice = ohlcData[ohlcData.length - 1].close;
-  const priceChange = ((endPrice - startPrice) / startPrice) * 100;
-
-  const isOversold = priceChange < -0.05; // More sensitive to minor drops
-  const isOverbought = priceChange > 0.05; // More sensitive to minor rallies
-
-  // --- COMPREHENSIVE PATTERN GROUPS ---
-  const bullishReversal = ['hammer', 'bullishEngulfing', 'morningStar', 'threeWhiteSoldiers', 'piercingLine', 'bullishHarami', 'tweezerBottom', 'bullishCounterattack', 'morningStarDoji', 'bullishAbandonedBaby', 'threeOutsideUp', 'threeInsideUp', 'bullishKicker', 'bullishBeltHold', 'matchingLow', 'ladderBottom', 'concealingBabySwallow', 'invertedHammer'];
-  const bearishReversal = ['shootingStar', 'bearishEngulfing', 'eveningStar', 'threeBlackCrows', 'hangingMan', 'bearishHarami', 'tweezerTop', 'bearishCounterattack', 'eveningStarDoji', 'darkCloudCover', 'bearishAbandonedBaby', 'threeOutsideDown', 'threeInsideDown', 'bearishKicker', 'bearishBeltHold', 'matchingHigh', 'upsideGapTwoCrows'];
-  const continuation = ['marubozu', 'risingThree', 'fallingThree', 'threeLineStrike', 'bullishSeparatingLines', 'bearishSeparatingLines'];
-  const indecision = ['doji', 'dragonflyDoji', 'gravestoneDoji', 'longLeggedDoji', 'bullishSpinningTop', 'bearishSpinningTop', 'highWave', 'pinBar'];
-
-  const displayName = pattern.replace(/([A-Z])/g, ' $1').toUpperCase();
-
-  // --- DYNAMIC SIGNAL LOGIC ---
-  if (bullishReversal.includes(pattern)) {
-    const prob = isOversold ? 94.2 : 68.5; // Prob drops if trend isn't clear
+  if (dbSimilarity > 97 && prices.indexOf(firstBottom) < prices.indexOf(neckline)) {
     return {
-      name: displayName,
-      prediction: "GREAT UP",
-      signal: "PURCHASE",
+      name: "DOUBLE BOTTOM",
+      type: "BULLISH REVERSAL",
+      similarity: dbSimilarity.toFixed(1),
+      edges: { support: firstBottom, neckline: neckline },
+      status: currentPrice > neckline ? "BREAKOUT" : "FORMING SECOND BOTTOM",
       color: "text-green-500",
-      confidence: isOversold ? "High (Exhaustion)" : "Standard",
-      probability: prob,
-      forecast: `UPWARD: ${prob}% path probability for next 10 candles`,
-      patternData: patternCandle
+      signal: "PURCHASE",
+      // Visualization path: First Bottom -> Neckline -> Second Bottom
+      visualSkeleton: [firstBottom, neckline, firstBottom, currentPrice] 
     };
-  } 
-  
-  if (bearishReversal.includes(pattern)) {
-    const prob = isOverbought ? 92.8 : 65.4;
+  }
+
+  // B. DOUBLE TOP (M-SHAPE) DETECTION
+  const firstTop = Math.max(...firstHalf);
+  const dtNeckline = Math.min(...prices.slice(prices.indexOf(firstTop), -5));
+  const topDiff = Math.abs(currentPrice - firstTop);
+  const dtSimilarity = (1 - (topDiff / firstTop)) * 100;
+
+  if (dtSimilarity > 97 && prices.indexOf(firstTop) < prices.indexOf(dtNeckline)) {
     return {
-      name: displayName,
-      prediction: "BIG LOSS",
-      signal: "SELL",
+      name: "DOUBLE TOP",
+      type: "BEARISH REVERSAL",
+      similarity: dtSimilarity.toFixed(1),
+      edges: { resistance: firstTop, neckline: dtNeckline },
+      status: currentPrice < dtNeckline ? "BREAKDOWN" : "FORMING SECOND TOP",
       color: "text-red-500",
-      confidence: isOverbought ? "High (Overextended)" : "Standard",
-      probability: prob,
-      forecast: `DOWNWARD: ${prob}% path probability for next 10 candles`,
-      patternData: patternCandle
+      signal: "SELL",
+      visualSkeleton: [firstTop, dtNeckline, firstTop, currentPrice]
     };
   }
 
-  if (continuation.includes(pattern)) {
+  // --- 3. FALLBACK: CANDLESTICK RECOGNITION (MICRO-EDGES) ---
+  const detections = patternChain(recent, allPatterns);
+  if (detections.length > 0) {
+    const pattern = detections[detections.length - 1].pattern;
     return {
-      name: displayName,
-      prediction: "TREND STRONG",
-      signal: "HOLD",
-      color: "text-blue-500",
-      confidence: "Momentum",
-      probability: 85.0,
-      forecast: "CONTINUATION: High probability trend persists",
-      patternData: patternCandle
+      name: pattern.replace(/([A-Z])/g, ' $1').toUpperCase(),
+      type: "CANDLESTICK EDGE",
+      similarity: 100,
+      color: "text-blue-400",
+      signal: "HOLD"
     };
   }
 
-  // --- INDECISION/STABLE FALLBACK ---
-  if (indecision.includes(pattern)) {
-    return {
-      name: displayName, prediction: "NEUTRAL", signal: "WAIT", color: "text-slate-400", confidence: "Indecision", probability: 50.0, forecast: "Market Hesitation", patternData: patternCandle
-    };
-  }
-
-  return { name: "STABLE", prediction: "STABLE", signal: "HOLD", color: "text-blue-400", probability: 0, forecast: "Sideways/No Trend", patternData: null };
+  return { name: "STABLE STRUCTURE", similarity: 0, signal: "WAIT", color: "text-slate-500" };
 };
