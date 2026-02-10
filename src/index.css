@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+/* 1. Global Reset & Theme Base */
+@layer base {
+  :root {
+    --background: #020617; /* Deep Slate 950 - Industry standard for trading */
+    --foreground: #f8fafc;
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-[var(--background)] text-[var(--foreground)] antialiased;
+    margin: 0;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  /* Remove default heading styles so Tailwind utility classes work better */
+  h1, h2, h3, h4 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+/* 2. Professional Trading Dashboard Accents */
+@theme {
+  --color-trading-green: #22c55e;
+  --color-trading-red: #ef4444;
+  --color-panel-bg: #0f172a; /* Slate 900 */
+  --color-border-subtle: #1e293b; /* Slate 800 */
+}
+
+/* 3. Smooth Transitions for the UI */
+* {
+  @apply transition-colors duration-200 border-border-subtle;
+}
