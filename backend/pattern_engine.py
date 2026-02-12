@@ -3,116 +3,157 @@ from flask_cors import CORS
 import numpy as np
 import tensorflow as tf
 import os
+import ccxt
+import yfinance as yf
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app)
 
 # 1. LOAD THE MASTER BRAIN
 MODEL_PATH = os.path.join(os.path.dirname(__file__), 'master_brain_250.keras')
+model = None
+
 try:
-    model = tf.keras.models.load_model(MODEL_PATH)
-    print("AI Master Brain Loaded: Zero-Flicker Mode Active.")
+    if os.path.exists(MODEL_PATH):
+        # compile=False ensures we load the weights even if the training environment differed
+        model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        print("✅ AI Master Brain: Institutional Structural Model Online.")
+    else:
+        print(f"❌ CRITICAL: Model file not found at {MODEL_PATH}")
 except Exception as e:
-    print(f"CRITICAL ERROR: {e}")
-    exit()
+    print(f"❌ LOAD ERROR: {e}")
 
-# 2. LABELS (Institutional DNA)
-LABELS = [
-    "Head and Shoulders", "Inverse Head and Shoulders", "Double Top", "Double Bottom",
-    "Triple Top", "Triple Bottom", "Rounded Top", "Rounded Bottom", "Broadening Top",
-    "Broadening Bottom", "Rising Wedge", "Falling Wedge", "Diamond Top", "Diamond Bottom",
-    "Island Reversal", "Bump and Run Reversal", "Quasimodo", "V-Top", "V-Bottom",
-    "Bull Flag", "Bear Flag", "Bull Pennant", "Bear Pennant", "Ascending Triangle",
-    "Descending Triangle", "Symmetrical Triangle", "Rectangle", "Cup and Handle",
-    "Inverse Cup and Handle", "Rising Channel", "Falling Channel", "Horizontal Channel",
-    "Measured Move", "Three Drives", "Expanding Triangle", "Broadening Wedge",
-    "VCP", "Rounded Base Breakout",
-    "Gartley", "Bat", "Butterfly", "Crab", "Cypher", "Shark", "ABCD", "5-0 Pattern",
-    "Spring", "Upthrust", "Accumulation", "Distribution", "Liquidity Sweep", 
-    "Fake Breakout", "Break and Retest", "Support Resistance Flip",
-    "Bullish Engulfing", "Bearish Engulfing", "Hammer", "Shooting Star", 
-    "Morning Star", "Evening Star", "Doji", "Dragonfly Doji", "Gravestone Doji",
-    "Marubozu", "Harami", "Piercing Line", "Dark Cloud Cover", "Morning Doji Star"
-]
+LABELS = ["Head and Shoulders", "Inverse Head and Shoulders", "Double Top", "Double Bottom", "Triple Top", "Triple Bottom", "Rounded Top", "Rounded Bottom", "Broadening Top", "Broadening Bottom", "Rising Wedge", "Falling Wedge", "Diamond Top", "Diamond Bottom", "Island Reversal", "Bump and Run Reversal", "Quasimodo", "V-Top", "V-Bottom", "Bull Flag", "Bear Flag", "Bull Pennant", "Bear Pennant", "Ascending Triangle", "Descending Triangle", "Symmetrical Triangle", "Rectangle", "Cup and Handle", "Inverse Cup and Handle", "Rising Channel", "Falling Channel", "Horizontal Channel", "Measured Move", "Three Drives", "Expanding Triangle", "Broadening Wedge", "VCP", "Rounded Base Breakout", "Gartley", "Bat", "Butterfly", "Crab", "Cypher", "Shark", "ABCD", "5-0 Pattern", "Spring", "Upthrust", "Accumulation", "Distribution", "Liquidity Sweep", "Fake Breakout", "Break and Retest", "Support Resistance Flip", "Bullish Engulfing", "Bearish Engulfing", "Hammer", "Shooting Star", "Morning Star", "Evening Star", "Doji", "Dragonfly Doji", "Gravestone Doji", "Marubozu", "Harami", "Piercing Line", "Dark Cloud Cover", "Morning Doji Star"]
 
-# --- PERSISTENCE STATE ---
-# This keeps the UI stable even if the AI slightly changes its mind
-state = {
-    "last_pattern": "SCANNING",
-    "stability_score": 0,
-    "locked_name": "SCANNING"
-}
+state = {"last_pattern": "SCANNING", "stability_score": 0, "locked_name": "SCANNING"}
+
+def robust_preprocess(ohlc_data):
+    """
+    Institutional Preprocessing: Standardizes price action 
+    to 120-candle Geometric DNA.
+    """
+    raw_array = np.array([[c['open'], c['high'], c['low'], c['close'], c.get('v', 0)] for c in ohlc_data])
+    
+    if len(raw_array) < 120:
+        raw_array = np.pad(raw_array, ((120 - len(raw_array), 0), (0, 0)), mode='edge')
+    else:
+        raw_array = raw_array[-120:]
+
+    prices = raw_array[:, :4]
+    volumes = raw_array[:, 4]
+
+    # Volatility Check (Filter for dead markets)
+    returns = np.diff(prices[:, 3]) / (prices[:-1, 3] + 1e-9)
+    volatility = np.std(returns)
+
+    p_min, p_max = np.min(prices), np.max(prices)
+    if p_max == p_min: return None, 0
+    
+    # Normalize price geometry
+    norm_prices = (prices - p_min) / (p_max - p_min)
+    
+    # Log-Normalize volume (better for pattern recognition)
+    norm_vols = np.log1p(volumes) / np.log1p(np.max(volumes) if np.max(volumes) > 0 else 1)
+    
+    combined = np.hstack((norm_prices, norm_vols.reshape(-1, 1)))
+    return combined.reshape(1, 120, 5), volatility
 
 @app.route('/analyze-structure', methods=['POST'])
 def analyze():
     global state
+    if model is None: return jsonify({"error": "AI Brain Offline"}), 500
+    
     try:
-        req_json = request.json
-        ohlc = req_json.get('ohlc', [])
+        req = request.json
+        ohlc = req.get('ohlc', [])
         
-        if not ohlc:
-            return jsonify({"name": "SCANNING", "similarity": 0, "status": "WAITING"})
+        processed_input, vol = robust_preprocess(ohlc)
+        if processed_input is None or vol < 0.0001: 
+            return jsonify({"name": "LOW VOLATILITY", "similarity": 0, "status": "WAITING"})
 
-        # 3. SLIDING WINDOW EXTRACTION
-        raw_data = np.array([[c['open'], c['high'], c['low'], c['close'], c.get('v', 0)] for c in ohlc])
-        
-        if len(raw_data) >= 120:
-            data = raw_data[-120:]
-        else:
-            data = np.pad(raw_data, ((120 - len(raw_data), 0), (0, 0)), mode='edge')
-        
-        # 4. NORMALIZATION (Crucial for LSTM Stability)
-        prices = data[:, :4]
-        min_p, max_p = np.min(prices), np.max(prices)
-        if max_p == min_p:
-            return jsonify({"name": "STALLED", "similarity": 0, "status": "STATIC"})
+        preds = model.predict(processed_input, verbose=0)[0]
+        confidence = float(np.max(preds))
+        winner_idx = np.argmax(preds)
+        detected = LABELS[winner_idx]
 
-        norm_prices = (prices - min_p) / (max_p - min_p)
-        vols = data[:, 4].reshape(-1, 1)
-        max_v = np.max(vols) if np.max(vols) > 0 else 1
-        norm_vols = vols / max_v
-        
-        ai_input = np.hstack((norm_prices, norm_vols)).reshape(1, 120, 5)
-
-        # 5. PREDICTION
-        predictions = model.predict(ai_input, verbose=0)
-        confidence = float(np.max(predictions))
-        winner_idx = np.argmax(predictions)
-        detected_pattern = LABELS[winner_idx]
-
-        # 6. STABILITY FILTER (The "Persistence" Gate)
-        # If the detected pattern is the same as the last one, increase stability
-        if detected_pattern == state["last_pattern"]:
+        # Stability Hysteresis (Prevents flickering)
+        if detected == state["last_pattern"]:
             state["stability_score"] = min(state["stability_score"] + 1, 15)
         else:
-            # If it's a new pattern, it must "fight" to overcome the old one
-            state["stability_score"] -= 2 
-            if state["stability_score"] <= 0:
-                state["last_pattern"] = detected_pattern
-                state["stability_score"] = 1
+            state["stability_score"] = 0
+            state["last_pattern"] = detected
 
-        # Only update the "Locked Name" if stability is high OR confidence is extreme (>99.5%)
-        if state["stability_score"] >= 5 or confidence > 0.995:
-            state["locked_name"] = state["last_pattern"]
-
-        # 7. LOCK LOGIC
-        is_locked = (confidence > 0.985 and state["stability_score"] >= 3)
+        # Smart Lock Logic
+        is_locked = (confidence > 0.90 and state["stability_score"] >= 2) or (confidence > 0.97)
         
-        is_bullish = any(x in state["locked_name"].upper() for x in ["BULL", "BOTTOM", "HAMMER", "SPRING", "ASCENDING", "CUP"])
-        price_range = max_p - min_p
-        target = float(max_p + price_range) if is_bullish else float(min_p - price_range)
+        if is_locked:
+            state["locked_name"] = detected
+        else:
+            state["locked_name"] = "IDENTIFYING..."
+
+        is_bullish = any(x in state["locked_name"].upper() for x in ["BULL", "BOTTOM", "HAMMER", "SPRING", "ASCENDING", "CUP", "FLAG"])
+        
+        price_data = np.array([c['close'] for c in ohlc])
+        current_price = price_data[-1]
+        
+        # Fibonacci 0.618 Projection for accurate targets
+        move_magnitude = (np.max(price_data) - np.min(price_data)) * 0.618 
+        target = current_price + move_magnitude if is_bullish else current_price - move_magnitude
 
         return jsonify({
-            "name": state["locked_name"].upper() if is_locked else "SCANNING",
-            "similarity": round(confidence * 100, 1),
-            "targetPrice": round(target, 2) if is_locked else 0,
+            "name": state["locked_name"].upper(),
+            "similarity": round(confidence * 100, 2),
+            "targetPrice": round(float(target), 2),
             "status": "AI_LOCKED" if is_locked else "ANALYZING",
-            "isBullish": is_bullish
+            "isBullish": is_bullish,
+            "volatility": round(vol * 100, 4)
         })
 
     except Exception as e:
-        print(f"STABILITY ENGINE ERROR: {e}")
-        return jsonify({"error": "Internal Engine Error"}), 500
+        return jsonify({"error": str(e)}), 500
 
+@app.route('/warm-up', methods=['GET'])
+def warm_up():
+    symbol = request.args.get('symbol', 'BTC/USDT').replace('-', '/')
+    timeframe = request.args.get('timeframe', '30m')
+    try:
+        if "USDT" in symbol.upper():
+            exchange = ccxt.binance()
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=120)
+            formatted = [{"open": c[1], "high": c[2], "low": c[3], "close": c[4], "v": c[5]} for c in ohlcv]
+        else:
+            ticker = f"{symbol}.NS" if not symbol.endswith(".NS") else symbol
+            stock = yf.Ticker(ticker)
+            df = stock.history(interval="30m", period="1mo").tail(120)
+            formatted = [{"open": float(row['Open']), "high": float(row['High']), "low": float(row['Low']), "close": float(row['Close']), "v": float(row['Volume'])} for _, row in df.iterrows()]
+        return jsonify(formatted)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/index-sentiment', methods=['GET'])
+def get_index_sentiment():
+    symbol = request.args.get('symbol', '^NSEI')
+    try:
+        stock = yf.Ticker(symbol)
+        df = stock.history(interval="5m", period="1d").tail(5)
+        if df.empty: return jsonify({"bullish": 50, "bearish": 50, "price": 0})
+        bullish_candles = sum(1 for _, row in df.iterrows() if row['Close'] > row['Open'])
+        bullish_percent = (bullish_candles / 5) * 100
+        return jsonify({
+            "price": float(df['Close'].iloc[-1]),
+            "change": float(((df['Close'].iloc[-1] - df['Open'].iloc[0]) / (df['Open'].iloc[0] + 1e-9)) * 100),
+            "bullish": bullish_percent,
+            "bearish": 100 - bullish_percent
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# --- FINAL SERVER STARTUP ---
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001, debug=False)
+    print("\n" + "="*50)
+    print("🚀 INSTITUTIONAL AI ENGINE (CRYPTO + NSE) ONLINE")
+    print("🧠 MODEL: Master Brain 250 (Institutional)")
+    print("📍 PORT: 5001")
+    print("="*50 + "\n")
+    
+    app.run(host='0.0.0.0', port=5001, debug=False, threaded=True)

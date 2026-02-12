@@ -7,7 +7,8 @@ import SignupPage from './pages/auth/SignupPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import Dashboard from './pages/Dashboard';
 import TradeDetail from './pages/TradeDetail';
-import Settings from './pages/Settings'; // Added Settings import
+import Settings from './pages/Settings';
+import Simulation from './pages/Simulation'; // Added Simulation import
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -49,10 +50,16 @@ export default function App() {
         />
 
         {/* Protected Settings Page */}
-        {/* This route was missing, which prevented the Sidebar link from working */}
         <Route 
           path="/settings" 
           element={user ? <Settings /> : <Navigate to="/login" />} 
+        />
+
+        {/* Protected Simulation Laboratory Page */}
+        {/* This is where we will test our dummy data and batch patterns */}
+        <Route 
+          path="/simulation" 
+          element={user ? <Simulation /> : <Navigate to="/login" />} 
         />
 
         {/* Catch-all: Redirect any unknown URLs to the Dashboard/Login gate */}

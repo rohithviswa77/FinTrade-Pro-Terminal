@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { auth } from '../firebase/config';
-import { LogOut, Activity, LayoutDashboard, LineChart, Settings, ShieldCheck, Zap } from 'lucide-react';
+import { LogOut, Activity, LayoutDashboard, LineChart, Settings, ShieldCheck, Zap, FlaskConical } from 'lucide-react';
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -31,6 +31,11 @@ export default function Sidebar() {
       name: 'Trade Terminal', 
       icon: LineChart, 
       path: location.pathname.startsWith('/trade') ? location.pathname : '/trade/BTCUSDT' 
+    },
+    { 
+      name: 'Simulation Lab', 
+      icon: FlaskConical, 
+      path: '/simulation' 
     },
     { 
       name: 'Settings', 
@@ -70,11 +75,12 @@ export default function Sidebar() {
                 <item.icon size={18} className={active ? 'text-blue-500' : 'text-slate-500 group-hover:text-slate-200'} />
                 <span className="text-[13px] tracking-tight">{item.name}</span>
               </div>
-              {/* Dynamic Session Indicators */}
-              {active && item.name === 'Trade Terminal' && (
+              
+              {/* Dynamic Session Indicators for Lab and Trade Terminal */}
+              {active && (item.name === 'Trade Terminal' || item.name === 'Simulation Lab') && (
                 <div className="flex gap-1">
-                   <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-ping" />
-                   <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                   <div className={`w-1.5 h-1.5 ${item.name === 'Simulation Lab' ? 'bg-purple-500' : 'bg-blue-500'} rounded-full animate-ping`} />
+                   <div className={`w-1.5 h-1.5 ${item.name === 'Simulation Lab' ? 'bg-purple-500' : 'bg-blue-500'} rounded-full`} />
                 </div>
               )}
             </button>
